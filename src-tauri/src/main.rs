@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 fn host_matches(host: &str, allowed_hosts: &[String]) -> bool {
     let normalized = host.trim().trim_end_matches('.');
@@ -390,8 +391,14 @@ fn main() {
     let parsed_url: url::Url = target_url.parse().expect("Invalid SUNSHINE_URL");
     let allowed_hosts = build_allowed_hosts(&parsed_url);
 
+    let window_state_flags = StateFlags::all() & !StateFlags::VISIBLE;
+
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(window_state_flags)
+                .build(),
+        )
         .setup(move |app| {
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             let initial_url = WebviewUrl::External("about:blank".parse().unwrap());
@@ -401,12 +408,15 @@ fn main() {
             let builder = WebviewWindowBuilder::new(app, "main", initial_url)
                 .title("SunshineApp")
                 .inner_size(1200.0, 780.0)
-                .center();
+                .center()
+                .visible(false);
 
             #[cfg(target_os = "windows")]
             let builder = builder.additional_browser_args("--ignore-certificate-errors");
 
             let window = builder.build()?;
+            let _ = window.restore_state(window_state_flags);
+            let _ = window.show();
 
             #[cfg(target_os = "windows")]
             {
