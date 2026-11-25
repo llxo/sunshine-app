@@ -1,14 +1,14 @@
 # sunshine-app
 
-Sunshine Web UI (`https://localhost:47990/config`) desktop wrapper, source code from [Pake](https://github.com/tw93/Pake).  
-Sunshine Web UI（`https://localhost:47990/config`）桌面封装，核心源码来自 [Pake](https://github.com/tw93/Pake)。
+Sunshine Web UI (`https://localhost:47990`) desktop wrapper, source code from [Pake](https://github.com/tw93/Pake).  
+Sunshine Web UI（`https://localhost:47990`）桌面封装，核心源码来自 [Pake](https://github.com/tw93/Pake)。
 
 ## Features / 特性
 
 - Automatic HTTP Basic Authentication on Windows (WebView2) and macOS (WKWebView)  
   Windows (WebView2) 与 macOS (WKWebView) 原生自动完成 HTTP Basic Auth 登录（跳过登录弹窗）
-- Self-signed HTTPS certificate bypass for local hosts  
-  自动放行本地自签名 HTTPS 证书警告
+- Self-signed HTTPS certificate bypass for target local/LAN hosts  
+  自动放行目标本机或局域网主机的自签名 HTTPS 证书警告
 
 ## Usage / 使用方式
 

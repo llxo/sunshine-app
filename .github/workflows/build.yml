@@ -15,7 +15,8 @@ on:
       url:
         description: "Sunshine URL"
         required: true
-        default: "https://localhost:47990/config"
+        default: "https://localhost:47990"
+        type: string
       username:
         description: "Sunshine username (Basic Auth)"
         required: true
@@ -28,6 +29,7 @@ on:
         description: "Icon URL (PNG/SVG/ICO)"
         required: false
         default: "https://raw.githubusercontent.com/SunshineStream/Sunshine/refs/heads/master/sunshine.svg"
+        type: string
 
 permissions:
   contents: read
@@ -58,10 +60,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
 
@@ -78,6 +80,7 @@ jobs:
         env:
           ICON_URL: ${{ inputs.icon }}
         run: |
+          $ErrorActionPreference = "Stop"
           if ($IsMacOS -and -not (Get-Command magick -ErrorAction SilentlyContinue)) {
             brew install imagemagick
           }
@@ -91,7 +94,7 @@ jobs:
               $rawIcon = Join-Path $tmpDir "sunshine_icon$ext"
               Invoke-WebRequest -Uri $env:ICON_URL -OutFile $rawIcon -UseBasicParsing
               magick -background none -density 512 $rawIcon -resize 512x512 -gravity center -extent 512x512 $pngPath
-              if (Test-Path $pngPath) { $ok = $true }
+              if ($LASTEXITCODE -eq 0 -and (Test-Path $pngPath)) { $ok = $true }
             } catch {
               Write-Warning "Failed to download/convert icon: $_"
             }
@@ -109,11 +112,12 @@ jobs:
           SUNSHINE_PASS: ${{ inputs.password }}
           SUNSHINE_HOSTS: "localhost,127.0.0.1"
         run: |
-          npx --yes @tauri-apps/cli@^2 build
+          $bundle = if ($IsWindows) { "msi" } else { "dmg" }
+          npx --yes @tauri-apps/cli@^2 build --bundles $bundle
 
       - name: Upload Windows MSI
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Sunshine-Windows
           path: src-tauri/target/release/bundle/msi/*.msi
@@ -121,7 +125,7 @@ jobs:
 
       - name: Upload macOS DMG
         if: runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Sunshine-macOS
           path: src-tauri/target/release/bundle/dmg/*.dmg

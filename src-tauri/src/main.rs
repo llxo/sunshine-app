@@ -2,88 +2,121 @@
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-fn host_allowed(uri: &str, allowed_hosts: &str) -> bool {
-    let Ok(parsed) = url::Url::parse(uri) else {
-        return false;
-    };
-    let Some(host) = parsed.host_str() else {
-        return false;
-    };
-    allowed_hosts
+fn host_matches(host: &str, allowed_hosts: &[String]) -> bool {
+    let normalized = host.trim().trim_end_matches('.');
+    !normalized.is_empty()
+        && allowed_hosts
+            .iter()
+            .any(|h| h.trim().trim_end_matches('.').eq_ignore_ascii_case(normalized))
+}
+
+fn build_allowed_hosts(target_url: &url::Url) -> Vec<String> {
+    let mut hosts: Vec<String> = option_env!("SUNSHINE_HOSTS")
+        .unwrap_or("localhost,127.0.0.1")
         .split(',')
         .map(str::trim)
         .filter(|h| !h.is_empty())
-        .any(|h| h.eq_ignore_ascii_case(host))
+        .map(str::to_owned)
+        .collect();
+
+    if let Some(target_host) = target_url.host_str() {
+        if !host_matches(target_host, &hosts) {
+            hosts.push(target_host.to_owned());
+        }
+    }
+    hosts
 }
 
 #[cfg(target_os = "windows")]
 mod windows_auth {
-    use super::host_allowed;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
+    use super::host_matches;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
     use webview2_com::{
         take_pwstr, BasicAuthenticationRequestedEventHandler,
         Microsoft::Web::WebView2::Win32::ICoreWebView2_10,
     };
     use windows_core::{Interface, HSTRING, PWSTR};
 
-    const MAX_AUTO_ATTEMPTS: usize = 3;
+    const MAX_RAPID_ATTEMPTS: usize = 3;
+    const ATTEMPT_WINDOW: Duration = Duration::from_secs(5);
 
-    pub fn install(webview: &tauri::webview::PlatformWebview) {
-        let Some(user) = option_env!("SUNSHINE_USER").filter(|s| !s.is_empty()) else {
-            return;
-        };
-        let Some(pass) = option_env!("SUNSHINE_PASS").filter(|s| !s.is_empty()) else {
-            return;
-        };
-        let allowed_hosts = option_env!("SUNSHINE_HOSTS")
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or("localhost,127.0.0.1");
+    pub fn install_and_navigate(
+        webview: &tauri::webview::PlatformWebview,
+        target_url: &str,
+        allowed_hosts: Vec<String>,
+    ) {
+        let user = option_env!("SUNSHINE_USER").filter(|s| !s.is_empty());
+        let pass = option_env!("SUNSHINE_PASS").filter(|s| !s.is_empty());
 
-        let attempts = Arc::new(AtomicUsize::new(0));
         let result = unsafe {
             (|| -> windows_core::Result<()> {
                 let core = webview.controller().CoreWebView2()?;
-                let webview10 = core.cast::<ICoreWebView2_10>()?;
-                let mut token = 0;
-                let attempts_ref = Arc::clone(&attempts);
-                webview10.add_BasicAuthenticationRequested(
-                    &BasicAuthenticationRequestedEventHandler::create(Box::new(move |_, args| {
-                        let Some(args) = args else {
-                            return Ok(());
-                        };
-                        let mut uri_ptr = PWSTR::null();
-                        args.Uri(&mut uri_ptr)?;
-                        let uri = take_pwstr(uri_ptr);
 
-                        if !host_allowed(&uri, allowed_hosts) {
-                            return Ok(());
-                        }
+                if let (Some(user), Some(pass)) = (user, pass) {
+                    let webview10 = core.cast::<ICoreWebView2_10>()?;
+                    let mut token = 0;
+                    let attempt_state = Arc::new(Mutex::new((Instant::now() - ATTEMPT_WINDOW, 0usize)));
 
-                        if attempts_ref.fetch_add(1, Ordering::Relaxed) >= MAX_AUTO_ATTEMPTS {
-                            return Ok(());
-                        }
+                    webview10.add_BasicAuthenticationRequested(
+                        &BasicAuthenticationRequestedEventHandler::create(Box::new(move |_, args| {
+                            let Some(args) = args else {
+                                return Ok(());
+                            };
+                            let mut uri_ptr = PWSTR::null();
+                            args.Uri(&mut uri_ptr)?;
+                            let uri = take_pwstr(uri_ptr);
 
-                        let response = args.Response()?;
-                        response.SetUserName(&HSTRING::from(user))?;
-                        response.SetPassword(&HSTRING::from(pass))?;
-                        args.SetCancel(false)?;
-                        Ok(())
-                    })),
-                    &mut token,
-                )?;
+                            let Ok(parsed) = url::Url::parse(&uri) else {
+                                return Ok(());
+                            };
+                            let Some(host) = parsed.host_str() else {
+                                return Ok(());
+                            };
+                            if !host_matches(host, &allowed_hosts) {
+                                return Ok(());
+                            }
+
+                            // Guard against infinite auth loops on wrong credentials while
+                            // allowing normal re-authentication after ATTEMPT_WINDOW elapses.
+                            {
+                                let mut state = attempt_state.lock().unwrap_or_else(|e| e.into_inner());
+                                let now = Instant::now();
+                                if now.duration_since(state.0) > ATTEMPT_WINDOW {
+                                    state.0 = now;
+                                    state.1 = 1;
+                                } else {
+                                    state.1 += 1;
+                                    if state.1 > MAX_RAPID_ATTEMPTS {
+                                        return Ok(());
+                                    }
+                                }
+                            }
+
+                            let response = args.Response()?;
+                            response.SetUserName(&HSTRING::from(user))?;
+                            response.SetPassword(&HSTRING::from(pass))?;
+                            args.SetCancel(false)?;
+                            Ok(())
+                        })),
+                        &mut token,
+                    )?;
+                }
+
+                core.Navigate(&HSTRING::from(target_url))?;
                 Ok(())
             })()
         };
 
         if let Err(error) = result {
-            eprintln!("[sunshine-app] Failed to install Basic Auth handler: {error}");
+            eprintln!("[sunshine-app] Failed to initialize WebView2 auth/navigation: {error}");
         }
     }
 }
 
 #[cfg(target_os = "macos")]
 mod macos_auth {
+    use super::host_matches;
     use objc2::rc::{Retained, Weak};
     use objc2::runtime::{AnyObject, Bool, NSObject, NSObjectProtocol, Sel};
     use objc2::{class, define_class, msg_send, DefinedClass, MainThreadMarker};
@@ -102,19 +135,10 @@ mod macos_auth {
 
     static AUTH_DELEGATE_ASSOCIATION_KEY: u8 = 0;
 
-    fn challenge_host_allowed(challenge_host: &str, allowed_hosts: &str) -> bool {
-        let host = challenge_host.trim_end_matches('.');
-        allowed_hosts
-            .split(',')
-            .map(|h| h.trim().trim_end_matches('.'))
-            .filter(|h| !h.is_empty())
-            .any(|h| h.eq_ignore_ascii_case(host))
-    }
-
     pub struct SunshineAuthDelegateIvars {
         inner: Weak<AnyObject>,
         webview: Weak<AnyObject>,
-        allowed_hosts: String,
+        allowed_hosts: Vec<String>,
         user: Option<String>,
         pass: Option<String>,
     }
@@ -151,7 +175,7 @@ mod macos_auth {
                     }
 
                     let challenge_host = (&*host).to_string();
-                    if !challenge_host_allowed(&challenge_host, &self.ivars().allowed_hosts) {
+                    if !host_matches(&challenge_host, &self.ivars().allowed_hosts) {
                         handler.call((PERFORM_DEFAULT_HANDLING, core::ptr::null_mut()));
                         return;
                     }
@@ -272,7 +296,7 @@ mod macos_auth {
         fn new(
             webview: &Retained<AnyObject>,
             inner: &Retained<AnyObject>,
-            allowed_hosts: String,
+            allowed_hosts: Vec<String>,
             user: Option<String>,
             pass: Option<String>,
             mtm: MainThreadMarker,
@@ -290,7 +314,11 @@ mod macos_auth {
         }
     }
 
-    pub fn install_and_navigate(webview: &tauri::webview::PlatformWebview, target_url: &str) -> bool {
+    pub fn install_and_navigate(
+        webview: &tauri::webview::PlatformWebview,
+        target_url: &str,
+        allowed_hosts: Vec<String>,
+    ) -> bool {
         let webview_ptr = webview.inner() as *mut c_void;
         if webview_ptr.is_null() {
             return false;
@@ -305,10 +333,6 @@ mod macos_auth {
         let pass = option_env!("SUNSHINE_PASS")
             .filter(|s| !s.is_empty())
             .map(str::to_owned);
-        let allowed_hosts = option_env!("SUNSHINE_HOSTS")
-            .filter(|s| !s.trim().is_empty())
-            .unwrap_or("localhost,127.0.0.1")
-            .to_owned();
 
         unsafe {
             let Some(wk_webview) = Retained::retain(webview_ptr as *mut AnyObject) else {
@@ -361,20 +385,22 @@ mod macos_auth {
 fn main() {
     let target_url = option_env!("SUNSHINE_URL")
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or("https://localhost:47990/config");
+        .unwrap_or("https://localhost:47990");
 
     let parsed_url: url::Url = target_url.parse().expect("Invalid SUNSHINE_URL");
+    let allowed_hosts = build_allowed_hosts(&parsed_url);
 
     tauri::Builder::default()
         .setup(move |app| {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
             let initial_url = WebviewUrl::External("about:blank".parse().unwrap());
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             let initial_url = WebviewUrl::External(parsed_url.clone());
 
             let builder = WebviewWindowBuilder::new(app, "main", initial_url)
                 .title("Sunshine")
-                .inner_size(1200.0, 780.0);
+                .inner_size(1200.0, 780.0)
+                .center();
 
             #[cfg(target_os = "windows")]
             let builder = builder.additional_browser_args("--ignore-certificate-errors");
@@ -382,17 +408,22 @@ fn main() {
             let window = builder.build()?;
 
             #[cfg(target_os = "windows")]
-            if let Err(error) = window.with_webview(|webview| {
-                windows_auth::install(&webview);
-            }) {
-                eprintln!("[sunshine-app] Failed to access WebView2: {error}");
+            {
+                let nav_url = parsed_url.as_str().to_owned();
+                let hosts = allowed_hosts.clone();
+                if let Err(error) = window.with_webview(move |webview| {
+                    windows_auth::install_and_navigate(&webview, &nav_url, hosts);
+                }) {
+                    eprintln!("[sunshine-app] Failed to access WebView2: {error}");
+                }
             }
 
             #[cfg(target_os = "macos")]
             {
                 let nav_url = parsed_url.as_str().to_owned();
+                let hosts = allowed_hosts.clone();
                 if let Err(error) = window.with_webview(move |webview| {
-                    if !macos_auth::install_and_navigate(&webview, &nav_url) {
+                    if !macos_auth::install_and_navigate(&webview, &nav_url, hosts) {
                         eprintln!("[sunshine-app] Failed to install macOS WKWebView auth delegate");
                     }
                 }) {
