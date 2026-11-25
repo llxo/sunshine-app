@@ -4,25 +4,30 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag"
+        description: "Release tag (e.g. v1.0.0)"
         required: true
         default: "v1.0.0"
+        type: string
       url:
         description: "Sunshine URL"
         required: true
-        default: "https://localhost:47990/config"
+        default: "https://localhost:47990"
+        type: string
       username:
         description: "Sunshine username (Basic Auth)"
         required: true
         default: "admin"
+        type: string
       password:
         description: "Sunshine password (Basic Auth)"
         required: true
         default: "admin"
+        type: string
       icon:
         description: "Icon URL (PNG/SVG/ICO)"
         required: false
         default: "https://raw.githubusercontent.com/SunshineStream/Sunshine/refs/heads/master/sunshine.svg"
+        type: string
 
 permissions:
   contents: write
@@ -76,20 +81,25 @@ jobs:
           SUNSHINE_URL: ${{ inputs.url }}
           SUNSHINE_USER: ${{ inputs.username }}
           SUNSHINE_PASS: ${{ inputs.password }}
+          SUNSHINE_HOSTS: "localhost,127.0.0.1"
         run: |
-          $targetHost = ([uri]$env:SUNSHINE_URL).Host
-          $hosts = @("localhost", "127.0.0.1", $targetHost) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
-          $env:SUNSHINE_HOSTS = ($hosts -join ",")
           npx --yes @tauri-apps/cli@^2 build
 
-      - name: Create Release
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sunshine-Windows
+          path: src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 7
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag }}
-          name: "Sunshine ${{ inputs.tag }}"
+          name: Sunshine ${{ inputs.tag }}
           body: |
-            Sunshine desktop wrapper for Windows:
+            Windows installer for Sunshine Web UI.
             - Target URL: `${{ inputs.url }}`
-            - Embedded Basic Auth: `${{ inputs.username }}` / `${{ inputs.password }}`
-            - Self-signed certificate bypass enabled (`--ignore-certificate-errors`)
+            - Embedded auto-login: `${{ inputs.username }}` / `${{ inputs.password }}`
           files: src-tauri/target/release/bundle/msi/*.msi
+          generate_release_notes: true
