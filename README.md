@@ -1,7 +1,7 @@
 # sunshine-app
 
-Minimal Tauri 2 desktop wrapper for Sunshine Web UI (`https://localhost:47990/config`), source code from [Pake](https://github.com/tw93/Pake).  
-极简的 Tauri 2 Sunshine Web UI（`https://localhost:47990/config`）桌面封装，核心源码来自 [Pake](https://github.com/tw93/Pake)。
+Sunshine Web UI (`https://localhost:47990/config`) desktop wrapper, source code from [Pake](https://github.com/tw93/Pake).  
+Sunshine Web UI（`https://localhost:47990/config`）桌面封装，核心源码来自 [Pake](https://github.com/tw93/Pake)。
 
 ## Features / 特性
 
