@@ -1,8 +1,17 @@
-name: Build Sunshine (Windows)
+name: Build Sunshine
 
 on:
   workflow_dispatch:
     inputs:
+      platform:
+        description: "Target platform"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - "all"
+          - "windows-latest"
+          - "macos-latest"
       url:
         description: "Sunshine URL"
         required: true
@@ -24,8 +33,29 @@ permissions:
   contents: read
 
 jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.set.outputs.platforms }}
+    steps:
+      - id: set
+        shell: bash
+        run: |
+          if [ "${{ inputs.platform }}" == "all" ]; then
+            echo 'platforms=["windows-latest","macos-latest"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'platforms=["${{ inputs.platform }}"]' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
-    runs-on: windows-latest
+    name: Build (${{ matrix.os }})
+    needs: prepare-matrix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJson(needs.prepare-matrix.outputs.platforms) }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,12 +73,15 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Prepare icon.ico
+      - name: Prepare icons
         shell: pwsh
         env:
           ICON_URL: ${{ inputs.icon }}
         run: |
-          New-Item -ItemType Directory -Path "src-tauri/icons" -Force | Out-Null
+          if ($IsMacOS -and -not (Get-Command magick -ErrorAction SilentlyContinue)) {
+            brew install imagemagick
+          }
+          $pngPath = Join-Path $env:TEMP "sunshine_512.png"
           $ok = $false
           if (-not [string]::IsNullOrWhiteSpace($env:ICON_URL)) {
             try {
@@ -56,17 +89,18 @@ jobs:
               if ([string]::IsNullOrEmpty($ext)) { $ext = ".png" }
               $rawIcon = Join-Path $env:TEMP "sunshine_icon$ext"
               Invoke-WebRequest -Uri $env:ICON_URL -OutFile $rawIcon -UseBasicParsing
-              magick $rawIcon -background none -resize 256x256 -define icon:auto-resize=256,128,64,48,32,16 src-tauri/icons/icon.ico
-              if (Test-Path "src-tauri/icons/icon.ico") { $ok = $true }
+              magick $rawIcon -background none -resize 512x512 $pngPath
+              if (Test-Path $pngPath) { $ok = $true }
             } catch {
               Write-Warning "Failed to download/convert icon: $_"
             }
           }
           if (-not $ok) {
-            magick -size 256x256 xc:#FF9900 -define icon:auto-resize=256,128,64,48,32,16 src-tauri/icons/icon.ico
+            magick -size 512x512 xc:#FF9900 $pngPath
           }
+          npx --yes @tauri-apps/cli@^2 icon $pngPath
 
-      - name: Build MSI
+      - name: Build bundle
         shell: pwsh
         env:
           SUNSHINE_URL: ${{ inputs.url }}
@@ -76,9 +110,18 @@ jobs:
         run: |
           npx --yes @tauri-apps/cli@^2 build
 
-      - name: Upload MSI
+      - name: Upload Windows MSI
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: Sunshine-Windows
           path: src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 7
+
+      - name: Upload macOS DMG
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sunshine-macOS
+          path: src-tauri/target/release/bundle/dmg/*.dmg
           retention-days: 7
