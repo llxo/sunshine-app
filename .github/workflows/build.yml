@@ -81,13 +81,14 @@ jobs:
           if ($IsMacOS -and -not (Get-Command magick -ErrorAction SilentlyContinue)) {
             brew install imagemagick
           }
-          $pngPath = Join-Path $env:TEMP "sunshine_512.png"
+          $tmpDir = [System.IO.Path]::GetTempPath()
+          $pngPath = Join-Path $tmpDir "sunshine_512.png"
           $ok = $false
           if (-not [string]::IsNullOrWhiteSpace($env:ICON_URL)) {
             try {
               $ext = [System.IO.Path]::GetExtension(($env:ICON_URL -split '\?')[0])
               if ([string]::IsNullOrEmpty($ext)) { $ext = ".png" }
-              $rawIcon = Join-Path $env:TEMP "sunshine_icon$ext"
+              $rawIcon = Join-Path $tmpDir "sunshine_icon$ext"
               Invoke-WebRequest -Uri $env:ICON_URL -OutFile $rawIcon -UseBasicParsing
               magick -background none -density 512 $rawIcon -resize 512x512 -gravity center -extent 512x512 $pngPath
               if (Test-Path $pngPath) { $ok = $true }
