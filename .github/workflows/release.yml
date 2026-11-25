@@ -74,7 +74,7 @@ jobs:
               if ([string]::IsNullOrEmpty($ext)) { $ext = ".png" }
               $rawIcon = Join-Path $env:TEMP "sunshine_icon$ext"
               Invoke-WebRequest -Uri $env:ICON_URL -OutFile $rawIcon -UseBasicParsing
-              magick $rawIcon -background none -resize 512x512 $pngPath
+              magick -background none -density 512 $rawIcon -resize 512x512 -gravity center -extent 512x512 $pngPath
               if (Test-Path $pngPath) { $ok = $true }
             } catch {
               Write-Warning "Failed to download/convert icon: $_"
