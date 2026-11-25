@@ -123,16 +123,28 @@ jobs:
         with:
           path: artifacts
 
+      - name: Rename release assets
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p release-files
+          cp artifacts/Sunshine-Windows/*.msi "release-files/Sunshine-${TAG}-Windows-x64.msi"
+          cp artifacts/Sunshine-macOS/*.dmg "release-files/Sunshine-${TAG}-macOS-AppleSilicon.dmg"
+          ls -lh release-files
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag }}
           name: Sunshine ${{ inputs.tag }}
           body: |
-            Desktop installers for Sunshine Web UI (Windows MSI & macOS DMG).
-            - Target URL: `${{ inputs.url }}`
-            - Embedded auto-login: `${{ inputs.username }}` / `${{ inputs.password }}`
+            Desktop installers for Sunshine Web UI (`${{ inputs.url }}`, embedded auto-login: `${{ inputs.username }}` / `${{ inputs.password }}`).
+            Sunshine Web UI 桌面端安装包（目标地址：`${{ inputs.url }}`，内置自动登录：`${{ inputs.username }}` / `${{ inputs.password }}`）。
+
+            - `Sunshine-${{ inputs.tag }}-Windows-x64.msi`: Windows 64-bit installer / Windows 64位安装包
+            - `Sunshine-${{ inputs.tag }}-macOS-AppleSilicon.dmg`: macOS (Apple Silicon / M-series) installer / macOS（Apple Silicon M芯片）安装包
           files: |
-            artifacts/Sunshine-Windows/*.msi
-            artifacts/Sunshine-macOS/*.dmg
+            release-files/Sunshine-${{ inputs.tag }}-Windows-x64.msi
+            release-files/Sunshine-${{ inputs.tag }}-macOS-AppleSilicon.dmg
           generate_release_notes: true

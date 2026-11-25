@@ -112,15 +112,22 @@ jobs:
           SUNSHINE_PASS: ${{ inputs.password }}
           SUNSHINE_HOSTS: "localhost,127.0.0.1"
         run: |
+          $ErrorActionPreference = "Stop"
           $bundle = if ($IsWindows) { "msi" } else { "dmg" }
           npx --yes @tauri-apps/cli@^2 build --bundles $bundle
+          New-Item -ItemType Directory -Path "dist-release" -Force | Out-Null
+          if ($IsWindows) {
+            Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1 | Copy-Item -Destination "dist-release/Sunshine-Windows-x64.msi"
+          } else {
+            Get-ChildItem "src-tauri/target/release/bundle/dmg/*.dmg" | Select-Object -First 1 | Copy-Item -Destination "dist-release/Sunshine-macOS-AppleSilicon.dmg"
+          }
 
       - name: Upload Windows MSI
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
           name: Sunshine-Windows
-          path: src-tauri/target/release/bundle/msi/*.msi
+          path: dist-release/Sunshine-Windows-x64.msi
           retention-days: 7
 
       - name: Upload macOS DMG
@@ -128,5 +135,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: Sunshine-macOS
-          path: src-tauri/target/release/bundle/dmg/*.dmg
+          path: dist-release/Sunshine-macOS-AppleSilicon.dmg
           retention-days: 7
