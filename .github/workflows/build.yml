@@ -1,0 +1,84 @@
+name: Build Sunshine (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Sunshine URL"
+        required: true
+        default: "https://localhost:47990/config"
+      username:
+        description: "Sunshine username (Basic Auth)"
+        required: true
+        type: string
+      password:
+        description: "Sunshine password (Basic Auth)"
+        required: true
+        type: string
+      icon:
+        description: "Icon URL (PNG/SVG/ICO)"
+        required: false
+        default: "https://raw.githubusercontent.com/SunshineStream/Sunshine/refs/heads/master/sunshine.svg"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Prepare icon.ico
+        shell: pwsh
+        env:
+          ICON_URL: ${{ inputs.icon }}
+        run: |
+          New-Item -ItemType Directory -Path "src-tauri/icons" -Force | Out-Null
+          $ok = $false
+          if (-not [string]::IsNullOrWhiteSpace($env:ICON_URL)) {
+            try {
+              $ext = [System.IO.Path]::GetExtension(($env:ICON_URL -split '\?')[0])
+              if ([string]::IsNullOrEmpty($ext)) { $ext = ".png" }
+              $rawIcon = Join-Path $env:TEMP "sunshine_icon$ext"
+              Invoke-WebRequest -Uri $env:ICON_URL -OutFile $rawIcon -UseBasicParsing
+              magick $rawIcon -background none -resize 256x256 -define icon:auto-resize=256,128,64,48,32,16 src-tauri/icons/icon.ico
+              if (Test-Path "src-tauri/icons/icon.ico") { $ok = $true }
+            } catch {
+              Write-Warning "Failed to download/convert icon: $_"
+            }
+          }
+          if (-not $ok) {
+            magick -size 256x256 xc:#FF9900 -define icon:auto-resize=256,128,64,48,32,16 src-tauri/icons/icon.ico
+          }
+
+      - name: Build MSI
+        shell: pwsh
+        env:
+          SUNSHINE_URL: ${{ inputs.url }}
+          SUNSHINE_USER: ${{ inputs.username }}
+          SUNSHINE_PASS: ${{ inputs.password }}
+          SUNSHINE_HOSTS: "localhost,127.0.0.1"
+        run: |
+          npx --yes @tauri-apps/cli@^2 build
+
+      - name: Upload MSI
+        uses: actions/upload-artifact@v4
+        with:
+          name: Sunshine-Windows
+          path: src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 7
