@@ -391,6 +391,7 @@ fn main() {
     let allowed_hosts = build_allowed_hosts(&parsed_url);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(move |app| {
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             let initial_url = WebviewUrl::External("about:blank".parse().unwrap());
