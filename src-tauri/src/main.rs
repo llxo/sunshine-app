@@ -398,7 +398,7 @@ fn main() {
             let initial_url = WebviewUrl::External(parsed_url.clone());
 
             let builder = WebviewWindowBuilder::new(app, "main", initial_url)
-                .title("Sunshine")
+                .title("SunshineApp")
                 .inner_size(1200.0, 780.0)
                 .center();
 

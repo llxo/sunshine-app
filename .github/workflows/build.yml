@@ -117,23 +117,23 @@ jobs:
           npx --yes @tauri-apps/cli@^2 build --bundles $bundle
           New-Item -ItemType Directory -Path "dist-release" -Force | Out-Null
           if ($IsWindows) {
-            Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1 | Copy-Item -Destination "dist-release/Sunshine-Windows-x64.msi"
+            Get-ChildItem "src-tauri/target/release/bundle/msi/*.msi" | Select-Object -First 1 | Copy-Item -Destination "dist-release/SunshineApp-Windows-x64.msi"
           } else {
-            Get-ChildItem "src-tauri/target/release/bundle/dmg/*.dmg" | Select-Object -First 1 | Copy-Item -Destination "dist-release/Sunshine-macOS-AppleSilicon.dmg"
+            Get-ChildItem "src-tauri/target/release/bundle/dmg/*.dmg" | Select-Object -First 1 | Copy-Item -Destination "dist-release/SunshineApp-macOS-AppleSilicon.dmg"
           }
 
       - name: Upload Windows MSI
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: Sunshine-Windows
-          path: dist-release/Sunshine-Windows-x64.msi
+          name: SunshineApp-Windows
+          path: dist-release/SunshineApp-Windows-x64.msi
           retention-days: 7
 
       - name: Upload macOS DMG
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
         with:
-          name: Sunshine-macOS
-          path: dist-release/Sunshine-macOS-AppleSilicon.dmg
+          name: SunshineApp-macOS
+          path: dist-release/SunshineApp-macOS-AppleSilicon.dmg
           retention-days: 7
